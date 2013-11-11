@@ -33,7 +33,8 @@ SQLite tables are associated with FCModel subclasses of the same name, and datab
 CREATE TABLE Person (
     id           INTEGER PRIMARY KEY,
     name         TEXT NOT NULL DEFAULT '',
-    createdTime  REAL NOT NULL
+    salary       TEXT NOT NULL DEFAULT '0',
+    createdTime  INTEGER NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS name ON Person (name);
@@ -50,6 +51,7 @@ This table's model would look like this:
 
 @property (nonatomic) int64_t id;
 @property (nonatomic, copy) NSString *name;
+@property (nonatomic) NSDecimalNumber *salary;
 @property (nonatomic) NSDate *createdTime;
 
 @end
@@ -76,6 +78,11 @@ To override this behavior or customize it for other types, models may override t
 You can name your column-property ivars whatever you like. FCModel associates columns with property names, not ivar names.
 
 Models may have properties that have no corresponding database columns. But if any columns in a model's table don't have corresponding properties, FCModel logs a notice to the console at launch.
+
+For `NSDecimalNumber` value. SQLite3 does not support customized precision deciaml value ([Datatypes In SQLite Version 3](http://www.sqlite.org/datatype3.html) ).
+So it is recommand to save it as TEXT type.
+
+You can add any other properties you'd like — they don't all need to have database columns.
 
 ## Schema creation and migrations
 
