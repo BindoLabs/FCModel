@@ -5,23 +5,21 @@ An alternative to Core Data for people who like having direct SQL access.
 
 By [Marco Arment](http://www.marco.org/). See the LICENSE file for license info (it's the MIT license).
 
-__Requires [Gus Mueller's excellent FMDB](https://github.com/ccgus/fmdb),__ a nice Objective-C wrapper around the SQLite C API.
-
-FCModel is a generic model layer on top of FMDB. It's intended for people who want _some_ of Core Data's convenience, but with more control over implementation, performance, database schemas, queries, indexes, and migrations, and the ability to use raw SQL queries and SQLite features directly.
+FCModel is a generic model layer on top of SQLite. It's intended for people who want some of Core Data's convenience, but with more control over implementation, performance, database schemas, queries, indexes, and migrations, and the ability to use raw SQL queries and SQLite features directly.
 
 FCModel accomplishes a lot of what [Brent Simmons wrote about](http://www.objc.io/issue-4/SQLite-instead-of-core-data.html). This is my version of that. (Are you reading [objc.io](http://www.objc.io) yet? You should be. It's excellent.)
 
-## Alpha status
+## Beta status
 
-This is an __alpha.__ I'm building an app around it, and this is the first time it's seeing outside eyes, so the API can still change in backwards-incompatible ways, and the code will probably change rapidly over the next few months.
+This is a __beta.__ I'm building [an app](http://overcast.fm/) around it, a few others are using it and making contributions, and it's stable for us so far. But changes are still relatively frequent, and the API may still change in minor but backward-incompatible ways.
 
 ## Requirements
 
-* Xcode 5
-* iOS 6 or above (haven't tested on Mac) since it requires `NSMapTable`
-* ARC
-* [FMDB](https://github.com/ccgus/fmdb)
-* Link your project with `sqlite3`
+* Xcode 5 or later
+* Deployment on iOS 6 or above, or Mac OS X 10.8 or above (it requires `NSMapTable`)
+* ARC only
+* [FMDB](https://github.com/ccgus/fmdb), Gus Mueller's excellent Objective-C SQLite wrapper (automatic if you use CocoaPods)
+* Linking your project with `sqlite3` (automatic if you use CocoaPods)
 
 ## Documentation
 
@@ -33,15 +31,15 @@ SQLite tables are associated with FCModel subclasses of the same name, and datab
 
 ```SQL
 CREATE TABLE Person (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    id           INTEGER PRIMARY KEY,
     name         TEXT NOT NULL DEFAULT '',
-    createdTime  INTEGER NOT NULL
+    createdTime  REAL NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS name ON Person (name);
 ```
 
-A single-column primary key is required. It can be an integer or a string, and `AUTOINCREMENT` is optional. You're responsible for creating your own indexes.
+A single-column primary key is required. It can be an integer or a string. If you don't specify a key value upon object creation, FCModel will generate a random 64-bit signed integer key that's unique within the table. You're responsible for creating your own table indexes.
 
 This table's model would look like this:
 
@@ -50,18 +48,34 @@ This table's model would look like this:
 
 @interface Person : FCModel
 
-@property (nonatomic, assign) int64_t id;
+@property (nonatomic) int64_t id;
 @property (nonatomic, copy) NSString *name;
 @property (nonatomic) NSDate *createdTime;
 
 @end
 ```
 
-You can name your column-property ivars whatever you like, and you can use primitives like `int` or objects like `NSNumber` — your choice. (No structs or blocks.) Since field-change tracking is implemented using KVO, just ensure that if you manipulate properties directly in the class (without using the property accessors), you call `didChangeValueForKey:` afterward to register the change with FCModel.
+## Property types
 
-`NSDate` and `NSURL` objects are automatically converted to/from Unix timestamp integers and absoluteStrings, respectively, for database storage. (Be careful that any column you define as an NSDate fits within the Unix-timestamp range.)
+Database-mapped object properties can be:
 
-You can add any other properties you'd like — they don't all need to have database columns.
+* Primitives (`int`, `double`, `BOOL`, `int64_t`, etc.) or `NSNumber`, limited to [SQLite's precision](http://www.sqlite.org/datatype3.html) (64-bit signed for integers).
+* `NSString`, which is always stored and loaded as UTF-8
+* `NSData` for `BLOB` columns
+* `NSDate`, which is converted to/from `NSTimeInterval` since 1970 (signed `double` versions of Unix timestamps) for storage. Declare `NSDate` columns as `REAL` in the table.
+* `NSURL`, which is converted to/from its `absoluteString` representation for storage.
+* `NSDictionary` or `NSArray`, which are converted to/from binary plists for storage (so each contained object must be an `NSData`, `NSString`, `NSArray`, `NSDictionary`, `NSDate`, or `NSNumber`).
+
+To override this behavior or customize it for other types, models may override the methods below. Database values may be `NSString` or `NSNumber` for `INTEGER`/`FLOAT`/`TEXT` columns, or `NSData` for `BLOB` columns. For columns that permit `NULL`, these methods may receive or return `nil`. Overrides must call the `super` implementation to convert values that they're not handling.
+
+```obj-c
+- (id)serializedDatabaseRepresentationOfValue:(id)instanceValue forPropertyNamed:(NSString *)propertyName;
+- (id)unserializedRepresentationOfDatabaseValue:(id)databaseValue forPropertyNamed:(NSString *)propertyName;
+```
+
+You can name your column-property ivars whatever you like. FCModel associates columns with property names, not ivar names.
+
+Models may have properties that have no corresponding database columns. But if any columns in a model's table don't have corresponding properties, FCModel logs a notice to the console at launch.
 
 ## Schema creation and migrations
 
@@ -93,7 +107,7 @@ NSString *dbPath = [documentsPath stringByAppendingPathComponent:@"testDB.sqlite
     if (*schemaVersion < 1) {
         if (! [db executeUpdate:
             @"CREATE TABLE Person ("
-            @"    id           INTEGER PRIMARY KEY AUTOINCREMENT,"
+            @"    id           INTEGER PRIMARY KEY,"
             @"    name         TEXT NOT NULL DEFAULT '',"
             @"    createdTime  INTEGER NOT NULL"
             @");"
@@ -130,9 +144,9 @@ Once you've shipped a version to customers, never change its construction in you
 Creating new instances (INSERTs):
 
 ```obj-c
-// If using AUTOINCREMENT:
-Person *bob = [Person new]; // .id will be set after save
-// If not:
+// If you want a random 64-bit signed integer primary key value for .id:
+Person *bob = [Person new];
+// If you want to specify your own .id value:
 Person *bob = [Person instanceWithPrimaryKey:@(123)];
 bob.name = @"Bob";
 bob.createdTime = [NSDate date];
@@ -190,7 +204,7 @@ If you want automatic relationship mappings, consider using Core Data. It's very
 
 Each FCModel instance is exclusive in memory by its table and primary-key value. If you load Person ID 1, then some other query loads Person ID 1, they'll be the same instance (unless the first one got deallocated in the meantime).
 
-FCModels are safe to retain for a while, even by the UI. You can use KVO to observe changes, or you can write your own change-tracking logic in your model implementations. Just check instances' `deleted` property where relevant, and watch for change notifications.
+FCModels are safe to retain for a while, even by the UI. You can use KVO to observe changes. Just check instances' `deleted` property where relevant, and watch for change notifications.
 
 FCModels are inherently cached by primary key:
 
@@ -208,7 +222,7 @@ Person *bob = [Person instanceWithPrimaryKey:@(123)];
 
 FCModels can be accessed and modified from any thread (again, as far as I know), but all database operations are run synchronously on a serial queue, so you're not likely to see any performance gains by concurrent access.
 
-If you observe any of FCModel's notifications (`FCModelInsertNotification`, etc.), be careful when updating the UI. Those are posted on the thread that caused the update, which may not be the main thread if you're accessing models from other threads or queues.
+FCModel's public notifications (`FCModelInsertNotification`, etc.) are always posted on the main thread.
 
 ## Support
 
