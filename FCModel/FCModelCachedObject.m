@@ -8,6 +8,10 @@
 #import "FCModelCachedObject.h"
 #import "FCModel.h"
 
+// FCModelCachedObject has its own notification that runs BEFORE the other FCModel change notifications
+//  so it can remove stale data before any application actions fetch new data in response to the change.
+extern NSString * const FCModelWillSendAnyChangeNotification;
+
 #pragma mark - Global cache
 
 @interface FCModelGeneratedObjectCache : NSObject
@@ -45,13 +49,11 @@
     return self;
 }
 
-#if TARGET_OS_IPHONE
 - (void)dealloc
 {
-    [NSNotificationCenter.defaultCenter removeObserver:self name:UIApplicationDidReceiveMemoryWarningNotification object:nil];
+    [NSNotificationCenter.defaultCenter removeObserver:self];
     [self clear:nil];
 }
-#endif
 
 - (void)clear:(id)sender
 {
@@ -122,7 +124,7 @@
         obj.ignoredFieldsForInvalidation = ignoredFields;
 
         [NSNotificationCenter.defaultCenter addObserver:obj selector:@selector(dataSourceChanged:) name:FCModelWillReloadNotification object:fcModelClass];
-        [NSNotificationCenter.defaultCenter addObserver:obj selector:@selector(dataSourceChanged:) name:FCModelAnyChangeNotification object:fcModelClass];
+        [NSNotificationCenter.defaultCenter addObserver:obj selector:@selector(dataSourceChanged:) name:FCModelWillSendAnyChangeNotification object:fcModelClass];
 
 #if TARGET_OS_IPHONE
         [NSNotificationCenter.defaultCenter addObserver:obj selector:@selector(flush:) name:UIApplicationDidReceiveMemoryWarningNotification object:nil];
@@ -133,15 +135,7 @@
     return obj;
 }
 
-- (void)dealloc
-{
-    [NSNotificationCenter.defaultCenter removeObserver:self name:FCModelWillReloadNotification object:_modelClass];
-    [NSNotificationCenter.defaultCenter removeObserver:self name:FCModelAnyChangeNotification object:_modelClass];
-
-#if TARGET_OS_IPHONE
-    [NSNotificationCenter.defaultCenter removeObserver:self name:UIApplicationDidReceiveMemoryWarningNotification object:nil];
-#endif
-}
+- (void)dealloc { [NSNotificationCenter.defaultCenter removeObserver:self]; }
 
 - (void)dataSourceChanged:(NSNotification *)n
 {

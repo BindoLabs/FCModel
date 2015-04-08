@@ -5,7 +5,7 @@
 //  Copyright (c) 2014 Marco Arment. See included LICENSE file.
 //
 
-@import Foundation;
+#import <Foundation/Foundation.h>
 
 #ifdef COCOAPODS
 #import <FMDB/FMDatabase.h>
@@ -22,7 +22,9 @@
 @interface FCModelDatabaseQueue : NSOperationQueue
 
 - (instancetype)initWithDatabasePath:(NSString *)filename;
-- (void)inDatabase:(void (^)(FMDatabase *db))block;
+- (void)startMonitoringForExternalChanges;
+- (void)readDatabase:(void (^)(FMDatabase *db))block;
+- (void)writeDatabase:(void (^)(FMDatabase *db))block;
 - (void)close;
 
 @property (nonatomic, readonly) FMDatabase *database;

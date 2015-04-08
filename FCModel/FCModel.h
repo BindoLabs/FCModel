@@ -6,6 +6,7 @@
 //
 
 #import <Foundation/Foundation.h>
+#include <AvailabilityMacros.h>
 
 #ifdef COCOAPODS
 #import <FMDB/FMDatabase.h>
@@ -62,7 +63,8 @@ typedef NS_ENUM(NSInteger, FCModelSaveResult) {
 @property (readonly) id primaryKey;
 @property (readonly) NSDictionary *allFields;
 @property (readonly) BOOL hasUnsavedChanges;
-@property (readonly) BOOL existsInDatabase;
+@property (readonly) BOOL existsInDatabase; // either deleted or never saved
+@property (readonly) BOOL isDeleted;
 @property (readonly) NSError *lastSQLiteError;
 
 + (void)openDatabaseAtPath:(NSString *)path withSchemaBuilder:(void (^)(FMDatabase *db, int *schemaVersion))schemaBuilder;
@@ -90,10 +92,11 @@ typedef NS_ENUM(NSInteger, FCModelSaveResult) {
 //
 + (void)dataWasUpdatedExternally;
 
-// Or use this convenience method, which calls dataWasUpdatedExternally automatically and offers $T/$PK parsing.
+// Or use one of these convenience methods, which calls dataWasUpdatedExternally automatically and offers $T/$PK parsing.
 // If you don't know which tables will be affected, or if it will affect more than one, call on FCModel, not a subclass.
 // Only call on a subclass if only that model's table will be affected.
 + (NSError *)executeUpdateQuery:(NSString *)query, ...;
++ (NSError *)executeUpdateQuery:(NSString *)query arguments:(NSArray *)arguments;
 
 // CRUD basics
 + (instancetype)instanceWithPrimaryKey:(id)primaryKeyValue; // will create if nonexistent
@@ -120,15 +123,20 @@ typedef NS_ENUM(NSInteger, FCModelSaveResult) {
 + (instancetype)firstInstanceFromResultSet:(FMResultSet *)rs;
 
 + (instancetype)firstInstanceWhere:(NSString *)queryAfterWHERE, ...;
++ (instancetype)firstInstanceWhere:(NSString *)queryAfterWHERE arguments:(NSArray *)arguments;
 + (NSArray *)instancesWhere:(NSString *)queryAfterWHERE, ...;
 + (NSArray *)instancesWhere:(NSString *)queryAfterWHERE arguments:(NSArray *)array;
 + (NSDictionary *)keyedInstancesWhere:(NSString *)queryAfterWHERE, ...;
++ (NSDictionary *)keyedInstancesWhere:(NSString *)queryAfterWHERE arguments:(NSArray *)arguments;
 
 + (instancetype)firstInstanceOrderedBy:(NSString *)queryAfterORDERBY, ...;
++ (instancetype)firstInstanceOrderedBy:(NSString *)queryAfterORDERBY arguments:(NSArray *)arguments;
 + (NSArray *)instancesOrderedBy:(NSString *)queryAfterORDERBY, ...;
++ (NSArray *)instancesOrderedBy:(NSString *)queryAfterORDERBY arguments:(NSArray *)arguments;
 
 + (NSUInteger)numberOfInstances;
 + (NSUInteger)numberOfInstancesWhere:(NSString *)queryAfterWHERE, ...;
++ (NSUInteger)numberOfInstancesWhere:(NSString *)queryAfterWHERE arguments:(NSArray *)arguments;
 
 // Fetch a set of primary keys, i.e. "WHERE key IN (...)"
 + (NSArray *)instancesWithPrimaryKeyValues:(NSArray *)primaryKeyValues;
@@ -136,8 +144,11 @@ typedef NS_ENUM(NSInteger, FCModelSaveResult) {
 
 // Return data instead of completed objects (convenient accessors to FCModel's database queue with $T/$PK parsing)
 + (NSArray *)resultDictionariesFromQuery:(NSString *)query, ...;
++ (NSArray *)resultDictionariesFromQuery:(NSString *)query arguments:(NSArray *)arguments;
 + (NSArray *)firstColumnArrayFromQuery:(NSString *)query, ...;
++ (NSArray *)firstColumnArrayFromQuery:(NSString *)query arguments:(NSArray *)arguments;
 + (id)firstValueFromQuery:(NSString *)query, ...;
++ (id)firstValueFromQuery:(NSString *)query arguments:(NSArray *)arguments;
 
 // These methods use a global query cache (in FCModelCachedObject). Results are cached indefinitely until their
 //  table has any writes or there's a system low-memory warning, at which point they automatically invalidate.
@@ -161,6 +172,8 @@ typedef NS_ENUM(NSInteger, FCModelSaveResult) {
 - (void)didDelete;
 - (void)saveWasRefused;
 - (void)saveDidFail;
+
++ (NSSet *)ignoredFieldNames; // Fields that exist in the table but should not be read into the model. Default empty set, cannot be nil.
 
 // To create new records with supplied primary-key values, call instanceWithPrimaryKey:, then save when done
 //  setting other fields.
@@ -224,8 +237,11 @@ typedef NS_ENUM(NSInteger, FCModelSaveResult) {
 // Be careful: batch notification order is not preserved, and you may be unexpectedly interacting with deleted instances.
 // Always check the given instances' .existsInDatabase property.
 //
-+ (void)beginNotificationBatch;
-+ (void)endNotificationBatchAndNotify:(BOOL)sendQueuedNotifications;
+// NOTE: Notification batching is thread-local. Operations performed in other threads will still send notifications normally.
+//
++ (void)performWithBatchedNotifications:(void (^)())block deliverOnCompletion:(BOOL)deliverNotifications;
++ (void)performWithBatchedNotifications:(void (^)())block; // equivalent to performWithBatchedNotifications:deliverOnCompletion:YES
++ (BOOL)isBatchingNotificationsForCurrentThread;
 
 // Field info: You probably won't need this most of the time, but it's nice to have sometimes. FCModel's generating this privately
 //  anyway, so you might as well have read-only access to it if it can help you avoid some code. (I've already needed it.)
